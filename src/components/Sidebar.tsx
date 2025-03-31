@@ -1,3 +1,5 @@
+'use client';
+
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { 
@@ -25,6 +27,7 @@ export default function Sidebar({ active }: SidebarProps) {
     { name: 'Bill Estimation', href: '/dashboard/bill-estimation', icon: CurrencyDollarIcon },
     { name: 'Alerts', href: '/dashboard/alerts', icon: BellAlertIcon },
     { name: 'Data Upload', href: '/dashboard/data-upload', icon: ArrowUpTrayIcon },
+    { name: 'Energy Upload', href: '/dashboard/energy-upload', icon: ArrowUpTrayIcon },
   ];
   
   const handleLogout = () => {
