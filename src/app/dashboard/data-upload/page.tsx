@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import DashboardLayout from '@/components/DashboardLayout';
 import { CloudArrowUpIcon, ExclamationCircleIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import { saveEnergyData } from '@/app/actions/energy-data';
 
 export default function DataUpload() {
   const router = useRouter();
@@ -236,19 +237,11 @@ export default function DataUpload() {
         throw new Error('No valid data could be parsed from the file');
       }
       
-      // Send to API
-      const response = await fetch('/api/energy-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ energyData }),
-      });
+      // Use server action instead of API
+      const result = await saveEnergyData(energyData);
       
-      const result = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(result.message || 'Error uploading data');
+      if (!result?.success) {
+        throw new Error('Error uploading data');
       }
       
       setUploadStatus('success');

@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+'use server';
+
 import fs from 'fs';
 import path from 'path';
 import { cookies } from 'next/headers';
 
-// Function to validate date format
+// Helper function to validate date format
 function isValidDateFormat(dateString: string): boolean {
   // Check for MM/DD/YYYY format
   const regex = /^(0?[1-9]|1[0-2])\/(0?[1-9]|[12][0-9]|3[01])\/\d{4}$/;
@@ -233,150 +234,90 @@ function generatePredictions(data: any[]) {
   };
 }
 
-// Helper function to save data in browser storage or file system
-async function saveData(data: any) {
-  if (process.env.NODE_ENV === 'production') {
-    try {
-      // In production, we'll use cookies to store a small amount of data
-      // For larger datasets, this would need to be replaced with a proper database
+// Helper function to save data in development or production
+export async function saveEnergyData(energyData: any[]) {
+  // Basic validation
+  if (!energyData || !Array.isArray(energyData) || energyData.length === 0) {
+    throw new Error('Invalid data format. Expected an array of energy data entries.');
+  }
+  
+  // Validate each entry
+  for (const entry of energyData) {
+    if (!entry.date || !isValidDateFormat(entry.date)) {
+      throw new Error('Invalid date format. Expected MM/DD/YYYY or M/D/YYYY format.');
+    }
+  }
+
+  try {
+    // Use cookies store for production and file system for development
+    if (process.env.NODE_ENV === 'production') {
+      // Write to a cookie limited to 4KB
       const cookieStore = cookies();
+      
+      // Store only minimal required data in cookie to stay within size limits
+      const minimalData = energyData.map(entry => {
+        const { date, totalKwh, ...appliances } = entry;
+        return { date, totalKwh };
+      });
+      
       cookieStore.set({
         name: 'energy-data',
-        value: JSON.stringify(data),
-        // Set path to root to make cookie available throughout the site
+        value: JSON.stringify(minimalData),
         path: '/',
-        // 7 day expiration
-        maxAge: 60 * 60 * 24 * 7,
-        // Only accessible via HTTP(S), not JavaScript
-        httpOnly: true,
-        // Only sent over HTTPS in production
-        secure: process.env.NODE_ENV === 'production',
-        // Strict same-site policy
-        sameSite: 'strict'
+        maxAge: 60 * 60 * 24 * 7, // 7 days
       });
-      return true;
-    } catch (error) {
-      console.error('Error saving energy data to cookies:', error);
-      return false;
-    }
-  } else {
-    // In development, use filesystem
-    try {
-      // Ensure data directory exists
+    } else {
+      // In development, use file system
       const dataDir = path.join(process.cwd(), 'data');
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
       }
       
-      // Write data to file
       fs.writeFileSync(
         path.join(dataDir, 'energy-data.json'),
-        JSON.stringify(data)
+        JSON.stringify(energyData)
       );
-      return true;
-    } catch (error) {
-      console.error('Error saving energy data to file:', error);
-      return false;
     }
+    
+    // Generate and return predictions
+    const predictions = generatePredictions(energyData);
+    return { success: true, predictions };
+  } catch (error) {
+    console.error('Error saving energy data:', error);
+    throw new Error('Failed to save energy data');
   }
 }
 
-// Helper function to read data from browser storage or file system
-async function readData() {
-  if (process.env.NODE_ENV === 'production') {
-    try {
-      // In production, read from cookies
+// Helper function to read energy data
+export async function getEnergyData() {
+  try {
+    let data: any[] = [];
+    
+    if (process.env.NODE_ENV === 'production') {
+      // Read from cookies in production
       const cookieStore = cookies();
       const storedData = cookieStore.get('energy-data');
-      return storedData ? JSON.parse(storedData.value) : [];
-    } catch (error) {
-      console.error('Error reading energy data from cookies:', error);
-      return [];
-    }
-  } else {
-    // In development, use filesystem
-    try {
-      // Path to the data file
-      const dataDir = path.join(process.cwd(), 'data');
-      const dataFile = path.join(dataDir, 'energy-data.json');
+      data = storedData ? JSON.parse(storedData.value) : [];
+    } else {
+      // Read from file system in development
+      const dataFile = path.join(process.cwd(), 'data', 'energy-data.json');
       
-      // Check if data file exists
-      if (!fs.existsSync(dataFile)) {
-        return [];
+      if (fs.existsSync(dataFile)) {
+        const fileData = fs.readFileSync(dataFile, 'utf8');
+        data = JSON.parse(fileData);
       }
-      
-      // Read data file
-      const fileData = fs.readFileSync(dataFile, 'utf8');
-      return JSON.parse(fileData);
-    } catch (error) {
-      console.error('Error reading energy data from file:', error);
-      return [];
     }
-  }
-}
-
-export async function GET() {
-  try {
-    // Read data from appropriate source
-    const data = await readData();
     
     // Generate predictions if data exists
     const predictions = generatePredictions(data);
     
-    return NextResponse.json({ 
-      message: 'Data retrieved successfully', 
+    return { 
+      success: true, 
       data, 
       predictions
-    });
+    };
   } catch (error) {
     console.error('Error retrieving energy data:', error);
-    return NextResponse.json(
-      { message: 'Failed to retrieve energy data', error: (error as Error).message },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: Request) {
-  try {
-    const { energyData } = await request.json();
-    
-    // Basic validation
-    if (!energyData || !Array.isArray(energyData) || energyData.length === 0) {
-      return NextResponse.json(
-        { message: 'Invalid data format. Expected an array of energy data entries.' },
-        { status: 400 }
-      );
-    }
-    
-    // Validate each entry
-    for (const entry of energyData) {
-      if (!entry.date || !isValidDateFormat(entry.date)) {
-        return NextResponse.json(
-          { message: 'Invalid date format. Expected MM/DD/YYYY or M/D/YYYY format.' },
-          { status: 400 }
-        );
-      }
-    }
-    
-    // Save data to appropriate storage
-    const saveResult = await saveData(energyData);
-    if (!saveResult) {
-      throw new Error('Failed to save data to storage');
-    }
-    
-    // Generate predictions
-    const predictions = generatePredictions(energyData);
-    
-    return NextResponse.json({ 
-      message: 'Data saved successfully',
-      predictions
-    });
-  } catch (error) {
-    console.error('Error saving energy data:', error);
-    return NextResponse.json(
-      { message: 'Failed to save energy data', error: (error as Error).message },
-      { status: 500 }
-    );
+    throw new Error('Failed to retrieve energy data');
   }
 } 

@@ -8,6 +8,8 @@ import {
   ClockIcon,
   CurrencyDollarIcon 
 } from '@heroicons/react/24/outline';
+import { getEnergyData } from '@/app/actions/energy-data';
+import { getClientData, ENERGY_DATA_KEY } from '@/lib/data-storage';
 
 // Sample data (to be replaced with actual API data)
 const sampleData = {
@@ -21,34 +23,58 @@ const sampleData = {
 export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState(sampleData);
   const [hasUploadedData, setHasUploadedData] = useState(false);
+  const [dataSource, setDataSource] = useState<'server' | 'client' | 'sample'>('sample');
   
   // Mock loading effect
   const [loading, setLoading] = useState(true);
   
   useEffect(() => {
-    // Fetch data from the API
+    // Fetch data from the server and client
     const fetchData = async () => {
       try {
-        const response = await fetch('/api/energy-data');
-        const apiData = await response.json();
+        // Try to get data from server first
+        const serverResult = await getEnergyData();
         
-        console.log('API Data:', apiData);
-        
-        if (apiData.data && apiData.data.length > 0 && apiData.predictions) {
-          // We have actual uploaded data
+        if (serverResult?.success && serverResult.data && serverResult.data.length > 0 && serverResult.predictions) {
+          // We have actual uploaded data on the server
+          console.log('Using server data');
           setHasUploadedData(true);
+          setDataSource('server');
           
           // Calculate average daily usage
-          const avgUsage = apiData.predictions.predictedUsage || 0;
+          const avgUsage = serverResult.predictions.predictedUsage || 0;
           
           // Update dashboard with real data
           setDashboardData({
             currentUsage: avgUsage,
             averageUsage: avgUsage * 1.1, // Just for comparison
-            savingsPotential: Math.round(apiData.predictions.savings.potential) || 15,
-            peakHours: apiData.predictions.peakHours || '6 PM - 9 PM',
-            estimatedBill: Math.round(apiData.predictions.predictedBill) || 4500,
+            savingsPotential: Math.round(serverResult.predictions.savings.potential) || 15,
+            peakHours: '6 PM - 9 PM', // Default value since this property doesn't exist in predictions
+            estimatedBill: Math.round(serverResult.predictions.predictedBill) || 4500,
           });
+        } else {
+          // Try client-side data as fallback
+          const clientData = getClientData(ENERGY_DATA_KEY, []);
+          
+          if (clientData && clientData.length > 0) {
+            console.log('Using client data');
+            setHasUploadedData(true);
+            setDataSource('client');
+            
+            // Calculate a simple average for client data
+            const totalKwh = clientData.reduce((sum: number, entry: any) => sum + (entry.totalKwh || 0), 0);
+            const avgKwh = totalKwh / clientData.length;
+            
+            setDashboardData({
+              currentUsage: avgKwh,
+              averageUsage: avgKwh * 1.1, // Just for comparison
+              savingsPotential: 15, // Default 
+              peakHours: '6 PM - 9 PM',
+              estimatedBill: Math.round(avgKwh * 30 * 5), // Simple estimate
+            });
+          } else {
+            console.log('Using sample data');
+          }
         }
         
         setLoading(false);
@@ -68,7 +94,7 @@ export default function Dashboard() {
         <p className="text-gray-600">Overview of your home energy usage</p>
         {hasUploadedData && (
           <p className="text-green-600 mt-1">
-            Using your uploaded energy data for analysis
+            Using your {dataSource} energy data for analysis
           </p>
         )}
       </div>
@@ -185,7 +211,7 @@ export default function Dashboard() {
           <h3 className="font-medium text-yellow-800 mb-2">No Data Uploaded Yet</h3>
           <p className="text-yellow-700">
             For more accurate predictions and personalized recommendations, please upload your energy usage data on the 
-            <a href="/dashboard/data-upload" className="underline font-medium ml-1">Data Upload</a> page.
+            <a href="/dashboard/energy-upload" className="underline font-medium ml-1">Energy Upload</a> page.
           </p>
         </div>
       )}
